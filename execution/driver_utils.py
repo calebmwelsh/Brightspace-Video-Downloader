@@ -1,8 +1,12 @@
 import os
 import sys
+import time
 
 import undetected_chromedriver as uc
 from dotenv import load_dotenv
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 from seleniumwire import webdriver
 
 # User-Agent
@@ -44,12 +48,11 @@ def load_brightspace_cookies(driver):
     for cookie in cookies:
         if cookie["value"]: # Only add if value exists
              driver.add_cookie(cookie)
+    
+    # Reload the page to apply cookies and clear any login redirects
+    driver.get("https://purdue.brightspace.com")
 
-import time
 
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
 
 
 def save_cookies_to_env(cookies_dict):

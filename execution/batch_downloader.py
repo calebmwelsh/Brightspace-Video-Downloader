@@ -47,7 +47,7 @@ def main():
         
         for i, item in enumerate(queue):
             url = item.get("url")
-            target_dir = os.path.join(item.get("target_dir"), "videos")
+            target_dir = item.get("target_dir")
             title = item.get("title")
             
             print(f"\n[{i+1}/{len(queue)}] Processing: {title}")
