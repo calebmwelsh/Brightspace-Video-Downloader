@@ -487,22 +487,35 @@ def main():
                 except Exception as e:
                     print(f"Error processing course {course_url}: {e}")
 
-            # Deduplicate Queue (Keep Deepest Path)
-            # Strategy: If a URL appears multiple times, keep the one with the longest target_dir path
-            # This ensures "Module 1/Topic 1" (Child) overrides "Module 1" (Parent)
+            # Deduplicate Queue (Keep Deepest Path, then First Found)
+            # Strategy: 
+            # 1. Prefer deeper hierarchy (e.g. "Module 1/Topic 1" > "Module 1")
+            # 2. If depth is equal, keep the FIRST one found (Preserve "Week X" over "Assessments" if Week X comes first)
+            
             unique_queue_map = {}
             for item in download_queue:
                 url = item['url']
+                target_dir = item['target_dir']
+                
+                # Calculate depth by counting separators
+                # usage of os.sep matters
+                depth = target_dir.count(os.sep)
+                
                 if url in unique_queue_map:
-                    current_path_len = len(item['target_dir'])
-                    best_path_len = len(unique_queue_map[url]['target_dir'])
+                    current_depth = unique_queue_map[url]['depth']
                     
-                    if current_path_len > best_path_len:
-                         unique_queue_map[url] = item # Replace with deeper path
+                    if depth > current_depth:
+                         # Found a deeper path, replace
+                         unique_queue_map[url] = {**item, 'depth': depth}
+                    # Else: keep existing (first wins)
                 else:
-                    unique_queue_map[url] = item
+                    unique_queue_map[url] = {**item, 'depth': depth}
             
-            final_queue = list(unique_queue_map.values())
+            # Remove the 'depth' helper key before saving
+            final_queue = []
+            for item in unique_queue_map.values():
+                clean_item = {k: v for k, v in item.items() if k != 'depth'}
+                final_queue.append(clean_item)
             
             print(f"\nSaving {len(final_queue)} unique items to {QUEUE_FILE} (Filtered from {len(download_queue)}) ...")
             with open(QUEUE_FILE, "w", encoding="utf-8") as f:
