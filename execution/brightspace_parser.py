@@ -14,6 +14,15 @@ from seleniumwire import webdriver
 # User-Agent
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
 
+# Configuration
+DOWNLOAD_PDFS = True # Set to False to skip PDF downloads
+
+# Project Root Setup
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DOWNLOADS_DIR = os.path.join(PROJECT_ROOT, "downloads")
+QUEUE_FILE = os.path.join(PROJECT_ROOT, "download_queue.json")
+REPORT_FILE = os.path.join(PROJECT_ROOT, "video_titles.txt")
+
 try:
     from execution.driver_utils import (
         load_brightspace_cookies,
@@ -178,7 +187,7 @@ def main():
             download_queue = []
             
             # Initialize/Clear the output file
-            with open("video_titles.txt", "w", encoding="utf-8") as f:
+            with open(REPORT_FILE, "w", encoding="utf-8") as f:
                 f.write("Brightspace Video Extraction Report\n")
                 f.write("===================================\n\n")
 
@@ -243,7 +252,7 @@ def main():
                         print(f"Course: {title}")
                         
                         # Write Course Header to File
-                        with open("video_titles.txt", "a", encoding="utf-8") as f:
+                        with open(REPORT_FILE, "a", encoding="utf-8") as f:
                             f.write(f"\n{'='*50}\n")
                             f.write(f"COURSE: {title}\n")
                             f.write(f"{'='*50}\n")
@@ -287,7 +296,7 @@ def main():
                         path_stack = [] 
                         
                         # Open file to append results
-                        with open("video_titles.txt", "a", encoding="utf-8") as f:
+                        with open(REPORT_FILE, "a", encoding="utf-8") as f:
                             for index in module_indices:
                                  # Re-acquire items to avoid StaleElementReferenceException
                                  items = driver.find_elements(By.CSS_SELECTOR, ".d2l-le-TreeAccordionItem-anchor")
@@ -398,9 +407,15 @@ def main():
                                          timestamp_pattern = re.compile(r'\(\d+:\d+\)')
                                          
                                          tag = "[OTHER]"
-                                         if "(PDF)" in v_text or "(PDF)" in v_title_attr:
+                                         # Broadened PDF detection
+                                         v_text_lower = v_text.lower()
+                                         v_title_lower = v_title_attr.lower()
+                                         
+                                         if "pdf" in v_text_lower or "pdf" in v_title_lower:
                                              tag = "[PDF]"
-                                         elif "External Learning Tool" in v_title_attr:
+                                         elif "slides" in v_text_lower or "slides" in v_title_lower:
+                                              tag = "[PDF]" # Assume slides are PDFs
+                                         elif "external learning tool" in v_title_lower:
                                               tag = "[VIDEO]" # Likely a video/Kaltura
                                          elif timestamp_pattern.search(v_text):
                                               tag = "[VIDEO]"
@@ -412,20 +427,52 @@ def main():
                                              print(f"    {tag} {v_text}")
                                              f.write(f"    - {tag} {v_text}\n") # Save to file with indent
                                              
-                                             # Trigger Queueing if Video
+                                             # Trigger Queueing
+                                             should_queue = False
+                                             content_type = "video" # default
+
                                              if tag == "[VIDEO]":
-                                                 print(f"      [QUEUE] Adding to download queue: {v_text}")
+                                                 should_queue = True
+                                                 content_type = "video"
+                                             elif tag == "[PDF]" and DOWNLOAD_PDFS:
+                                                 print(f"      [QUEUE] Adding PDF to download queue: {v_text}")
+                                                 should_queue = True
+                                                 content_type = "pdf"
+                                             
+                                             if should_queue:
+                                                 if tag == "[VIDEO]":
+                                                     print(f"      [QUEUE] Adding video to download queue: {v_text}")
+
                                                  try:
                                                      # safe names
                                                      safe_course = sanitize_filename(title)
                                                      # module_path is already sanitized and hierarchical (e.g. "Mod 1/Topic 1")
                                                      
-                                                     target_dir = os.path.join("downloads", safe_course, module_path, "videos")
+                                                     # Determine subfolder based on type
+                                                     subfolder = "videos"
+                                                     if content_type == "pdf":
+                                                         subfolder = "pdfs" # separate folder for PDFs? or mixed?
+                                                         # User said "save the PDFs in the class as well". 
+                                                         # "That way we can download both PDFs and videos"
+                                                         # In the prototype, user had: class_folder/Modules/module_name/Content Videos/ or Readings/
+                                                         # Here we have generic output structure: downloads/course/module_path/videos
+                                                         # I should probably just change "videos" to "content" or have specific folders?
+                                                         # Current code hardcodes "videos".
+                                                         # Let's use "pdfs" for PDFs and "videos" for videos to keep them organized, 
+                                                         # or user might prefer them together? 
+                                                         # User's prototype has: 
+                                                         # content_videos_folder = os.path.join(module_folder, "Content Videos")
+                                                         # readings_folder = os.path.join(module_folder, "Readings")
+                                                         # syllabus.pdf went to class_folder root.
+                                                         # Let's put PDFs in a 'pdfs' folder alongside 'videos' folder.
+                                                     
+                                                     target_dir = os.path.join(DOWNLOADS_DIR, safe_course, module_path, subfolder)
                                                      
                                                      download_queue.append({
                                                          "title": v_text,
                                                          "url": v_href,
-                                                         "target_dir": target_dir
+                                                         "target_dir": target_dir,
+                                                         "type": content_type
                                                      })
                                                      
                                                  except Exception as q_ex:
@@ -457,9 +504,8 @@ def main():
             
             final_queue = list(unique_queue_map.values())
             
-            queue_file = "download_queue.json"
-            print(f"\nSaving {len(final_queue)} unique items to {queue_file} (Filtered from {len(download_queue)}) ...")
-            with open(queue_file, "w", encoding="utf-8") as f:
+            print(f"\nSaving {len(final_queue)} unique items to {QUEUE_FILE} (Filtered from {len(download_queue)}) ...")
+            with open(QUEUE_FILE, "w", encoding="utf-8") as f:
                 json.dump(final_queue, f, indent=2)
             print("Queue saved.")
 
