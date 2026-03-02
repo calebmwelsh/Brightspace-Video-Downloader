@@ -210,6 +210,7 @@ def extract_and_download(driver, page_url, download_dir):
             for chunk in r.iter_content(chunk_size=8192):
                 f.write(chunk)
     print("Download complete.")
+    return True
 
 def main():
     parser = argparse.ArgumentParser(description="Extract Kaltura videos from Brightspace.")

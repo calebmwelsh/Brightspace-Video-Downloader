@@ -20,7 +20,9 @@ DOWNLOAD_PDFS = True # Set to False to skip PDF downloads
 # Project Root Setup
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOWNLOADS_DIR = os.path.join(PROJECT_ROOT, "downloads")
+DOWNLOADS_DIR = os.path.join(PROJECT_ROOT, "downloads")
 QUEUE_FILE = os.path.join(PROJECT_ROOT, "download_queue.json")
+HISTORY_FILE = os.path.join(PROJECT_ROOT, "download_history.json")
 REPORT_FILE = os.path.join(PROJECT_ROOT, "video_titles.txt")
 
 try:
@@ -185,6 +187,16 @@ def main():
             
             # Initialize Download Queue
             download_queue = []
+            
+            # Load History
+            history_set = set()
+            if os.path.exists(HISTORY_FILE):
+                try:
+                    with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                        history_set = set(json.load(f))
+                except Exception:
+                    print("Could not load history file, starting fresh.")
+                    history_set = set()
             
             # Initialize/Clear the output file
             with open(REPORT_FILE, "w", encoding="utf-8") as f:
@@ -427,6 +439,10 @@ def main():
                                              print(f"    {tag} {v_text}")
                                              f.write(f"    - {tag} {v_text}\n") # Save to file with indent
                                              
+                                             if v_href in history_set:
+                                                 print(f"      [SKIP] Already in history: {v_text}")
+                                                 continue
+
                                              # Trigger Queueing
                                              should_queue = False
                                              content_type = "video" # default
