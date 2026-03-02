@@ -114,10 +114,11 @@ def main():
         # This avoids issues with CSS attribute selectors in Shadow DOM
         pinned_tab = None
         
-        # Script to find all d2l-tab-internal elements
+        # Script to find all potential tab elements
         find_tabs_script = """
         function collectTabs(root = document, tabs = []) {
-            root.querySelectorAll('d2l-tab-internal').forEach(el => tabs.push(el));
+            // Target both d2l-tab and d2l-tab-internal
+            root.querySelectorAll('d2l-tab, d2l-tab-internal').forEach(el => tabs.push(el));
             root.querySelectorAll('*').forEach(el => {
                 if (el.shadowRoot) collectTabs(el.shadowRoot, tabs);
             });
@@ -131,18 +132,27 @@ def main():
             try:
                 all_tabs = driver.execute_script(find_tabs_script)
                 for tab in all_tabs:
-                    # Check attributes
+                    # Check various attributes for "Pinned" text or ID
                     t_text = tab.get_attribute("text")
                     t_title = tab.get_attribute("title")
+                    t_id = tab.get_attribute("id")
                     
-                    if (t_text and "Pinned" in t_text) or (t_title and "Pinned" in t_title):
+                    # Robust matching
+                    is_pinned = False
+                    if t_id and "pinned" in t_id.lower():
+                        is_pinned = True
+                    elif (t_text and "Pinned" in t_text):
+                        is_pinned = True
+                    elif (t_title and "Pinned" in t_title):
+                        is_pinned = True
+                    
+                    if is_pinned:
                         pinned_tab = tab
                         break
                 
                 if pinned_tab:
                     break
             except Exception as e:
-                # Script execution might fail if page is reloading
                 pass
             
             time.sleep(1)
