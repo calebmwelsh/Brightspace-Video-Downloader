@@ -255,10 +255,17 @@ def main():
                                  v_href = vid.get_attribute("href")
                                  v_text = vid.text.strip() or (vid.get_attribute("title") or "").replace(" - External Learning Tool", "").strip()
                                  
-                                 tag = "[OTHER]"
+                                 v_title = (vid.get_attribute("title") or "").lower()
                                  v_low = v_text.lower()
-                                 if "pdf" in v_low or "slides" in v_low: tag = "[PDF]"
-                                 elif "external learning tool" in (vid.get_attribute("title") or "").lower() or re.search(r'\(\d+:\d+\)', v_text): tag = "[VIDEO]"
+                                 
+                                 tag = "[OTHER]"
+                                 # Keywords for documents/files
+                                 doc_keywords = ["pdf", "slide", "powerpoint", "pptx", "presentation", "lecture", "document", "doc", "docx", "assignment", "homework", "quiz", "assessment", "syllabus"]
+                                 
+                                 if any(k in v_low for k in doc_keywords) or any(k in v_title for k in doc_keywords):
+                                     tag = "[PDF]"
+                                 elif "external learning tool" in v_title or re.search(r'\(\d+:\d+\)', v_text):
+                                     tag = "[VIDEO]"
                                  
                                  if v_href and v_href not in unique_vids:
                                      unique_vids.add(v_href)
