@@ -1,4 +1,5 @@
 import argparse
+import base64
 import os
 import re
 import string
@@ -144,6 +145,63 @@ def extract_pdf_content(driver, page_url, download_dir):
             
     except Exception as e:
         print(f"  Error extracting PDF content: {e}")
+        return False
+
+
+def extract_webpage_content(driver, page_url, download_dir):
+    """
+    Save a Brightspace "Web Page" content topic (e.g. lecture notes) as a PDF.
+
+    Web Page topics render the actual HTML inside an iframe that points at a
+    /content/enforced/... file. We navigate the (cookie-authenticated) browser
+    directly to that iframe URL so images/MathJax load, then print it to PDF via
+    Chrome DevTools. Falls back to printing the View page itself if no enforced
+    iframe is present (e.g. inline HTML blocks).
+    """
+    try:
+        print(f"visiting Web Page: {page_url}")
+        driver.get(page_url)
+        time.sleep(4)  # Wait for page + iframe to render
+
+        # Filename from the page title
+        try:
+            page_title = driver.find_element(By.CLASS_NAME, "d2l-page-title").text.strip()
+        except Exception:
+            page_title = ""
+        if not page_title:
+            page_title = "webpage"
+        safe_title = sanitize_filename(page_title)
+
+        # Locate the enforced-content iframe holding the real HTML
+        content_url = None
+        for frame in driver.find_elements(By.TAG_NAME, "iframe"):
+            src = frame.get_attribute("src") or ""
+            if "/content/enforced/" in src:
+                content_url = src
+                break
+
+        if content_url:
+            print(f"  Found content iframe: {content_url}")
+            driver.get(content_url)
+            time.sleep(3)  # Let images/MathJax settle
+        else:
+            print("  No enforced iframe found; printing the topic page as-is.")
+
+        os.makedirs(download_dir, exist_ok=True)
+        filename = os.path.join(download_dir, f"{safe_title}.pdf")
+        print(f"  Printing to PDF: {filename}")
+
+        result = driver.execute_cdp_cmd(
+            "Page.printToPDF",
+            {"printBackground": True, "preferCSSPageSize": True},
+        )
+        with open(filename, "wb") as f:
+            f.write(base64.b64decode(result["data"]))
+        print(f"  Web Page saved: {filename}\n")
+        return True
+
+    except Exception as e:
+        print(f"  Error extracting Web Page content: {e}")
         return False
 
 

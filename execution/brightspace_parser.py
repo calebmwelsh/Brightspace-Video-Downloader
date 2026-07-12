@@ -253,28 +253,36 @@ def main():
                              unique_vids = set()
                              for vid in video_links:
                                  v_href = vid.get_attribute("href")
-                                 v_text = vid.text.strip() or (vid.get_attribute("title") or "").replace(" - External Learning Tool", "").strip()
-                                 
-                                 v_title = (vid.get_attribute("title") or "").lower()
+                                 raw_title = vid.get_attribute("title") or ""
+                                 # Fallback title strips the trailing D2L type descriptor (" - PDF document", etc.)
+                                 fallback = re.sub(r'\s*-\s*(External Learning Tool|PDF document|Web Page|Link)\s*$', '', raw_title).strip()
+                                 v_text = vid.text.strip() or fallback
+
+                                 v_title = raw_title.lower()
                                  v_low = v_text.lower()
-                                 
+
                                  tag = "[OTHER]"
-                                 # Keywords for documents/files
-                                 doc_keywords = ["pdf", "slide", "powerpoint", "pptx", "presentation", "lecture", "document", "doc", "docx", "assignment", "homework", "quiz", "assessment", "syllabus"]
-                                 
-                                 if any(k in v_low for k in doc_keywords) or any(k in v_title for k in doc_keywords):
-                                     tag = "[PDF]"
-                                 elif "external learning tool" in v_title or re.search(r'\(\d+:\d+\)', v_text):
+                                 # Keywords for documents/files (excludes "lecture" — lecture videos have time codes)
+                                 doc_keywords = ["pdf", "slide", "powerpoint", "pptx", "presentation", "document", "doc", "docx", "syllabus"]
+
+                                 # Time codes and external tool label are definitive video signals — check first
+                                 if "external learning tool" in v_title or re.search(r'\(\d+:\d+\)', v_text):
                                      tag = "[VIDEO]"
-                                 
+                                 elif any(k in v_low for k in doc_keywords) or any(k in v_title for k in doc_keywords):
+                                     tag = "[PDF]"
+                                 elif "web page" in v_title:
+                                     # HTML content topic (e.g. lecture notes rendered as a Web Page)
+                                     tag = "[WEBPAGE]"
+
                                  if v_href and v_href not in unique_vids:
                                      unique_vids.add(v_href)
                                      f.write(f"    - {tag} {v_text}\n")
                                      if v_href in history_set: continue
 
-                                     content_type = "pdf" if tag == "[PDF]" else "video" if tag == "[VIDEO]" else None
-                                     if content_type and (content_type == "video" or DOWNLOAD_PDFS):
-                                         target_dir = os.path.join(DOWNLOADS_DIR, sanitize_filename(title), module_path, "pdfs" if content_type == "pdf" else "videos")
+                                     content_type = {"[PDF]": "pdf", "[VIDEO]": "video", "[WEBPAGE]": "webpage"}.get(tag)
+                                     if content_type and (content_type != "pdf" or DOWNLOAD_PDFS):
+                                         subfolder = {"pdf": "pdfs", "video": "videos", "webpage": "notes"}[content_type]
+                                         target_dir = os.path.join(DOWNLOADS_DIR, sanitize_filename(title), module_path, subfolder)
                                          download_queue.append({"title": v_text, "url": v_href, "target_dir": target_dir, "type": content_type})
                 except Exception as e: print(f"  Error: {e}")
             except Exception as e: print(f"Error: {e}")

@@ -12,6 +12,7 @@ try:
     from execution.kaltura_video_extractor import (
         extract_and_download,
         extract_pdf_content,
+        extract_webpage_content,
         sanitize_filename,
     )
 except ImportError:
@@ -23,6 +24,7 @@ except ImportError:
     from kaltura_video_extractor import (
         extract_and_download,
         extract_pdf_content,
+        extract_webpage_content,
         sanitize_filename,
     )
 
@@ -88,7 +90,7 @@ def main():
             try:
                 item_type = item.get("type", "video")
                 safe_title = sanitize_filename(title)
-                ext = ".pdf" if item_type == "pdf" else ".mp4"
+                ext = ".mp4" if item_type == "video" else ".pdf"
                 expected_path = os.path.join(target_dir, safe_title + ext)
                 
                 if os.path.exists(expected_path):
@@ -108,6 +110,8 @@ def main():
                 success = False
                 if item_type == "pdf":
                     success = extract_pdf_content(driver, url, target_dir)
+                elif item_type == "webpage":
+                    success = extract_webpage_content(driver, url, target_dir)
                 else:
                     success = extract_and_download(driver, url, target_dir)
 

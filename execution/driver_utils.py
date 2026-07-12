@@ -1,9 +1,8 @@
 import os
-import sys
-import time
 
 import undetected_chromedriver as uc
 from dotenv import load_dotenv
+from selenium.common.exceptions import StaleElementReferenceException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
@@ -101,79 +100,116 @@ def find_element_shadow(driver, selector):
     return driver.execute_script(script, selector)
 
 def perform_purl_login(driver):
-    """Performs the login sequence via Purdue authentication."""
+    """Performs the login sequence via Purdue authentication (Microsoft Azure AD)."""
     print("Attempting Auto-Login...")
     print(f"Current URL before login attempt: {driver.current_url}")
-    
+
     try:
-        # 1. Click "Purdue West Lafayette / Indianapolis"
+        # 1. Click "Purdue West Lafayette / Indianapolis" (inside Shadow DOM)
         login_link = None
-        
-        # Try standard find first
+
         try:
-             login_link = WebDriverWait(driver, 5).until(
-                 EC.element_to_be_clickable((By.CSS_SELECTOR, "a[title*='Purdue West Lafayette']"))
-             )
+            login_link = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "a[title*='Purdue West Lafayette']"))
+            )
         except:
-             pass
-             
-        # Try Shadow DOM find if standard failed
+            pass
+
         if not login_link:
             print("Standard search failed. Trying Shadow DOM search for 'Purdue West Lafayette'...")
             login_link = find_element_shadow(driver, "a[title*='Purdue West Lafayette']")
-            
-        # Fallback to generic IDP if specific title fails
+
         if not login_link:
-             print("Specific title not found. Trying generic IDP link in Shadow DOM...")
-             # Note: This might pick up Fort Wayne or Northwest if they share the IDP, but usually specific is better.
-             # Purdue West Lafayette usually has 'idp.purdue.edu' while others might have different ones?
-             # User snippet shows others have different entityIds (e.g. pfw, purdueglobal).
-             # West Lafayette is 'https://idp.purdue.edu/idp/shibboleth'
-             login_link = find_element_shadow(driver, "a[href*='idp.purdue.edu']")
+            print("Specific title not found. Trying generic IDP link in Shadow DOM...")
+            login_link = find_element_shadow(driver, "a[href*='idp.purdue.edu']")
 
         if login_link:
-             print("Found Login Link. Clicking...")
-             # Use JS click to be safe with Shadow DOM elements
-             driver.execute_script("arguments[0].click();", login_link)
+            print("Found Login Link. Clicking...")
+            driver.execute_script("arguments[0].click();", login_link)
         else:
-             print("Login link not found. Assuming we might already be at the form...")
+            print("Login link not found. Assuming we might already be at the form...")
 
-        # 2. Login Form
-        print(f"Waiting for Login Form (URL: {driver.current_url})...")
-        
-        # Wait for username field
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, "username"))
+        # 2. Microsoft Azure AD Login Form — email step
+        print(f"Waiting for Microsoft Login Form...")
+
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.ID, "i0116"))
         )
-         
+
         username = os.getenv("D2L_USERNAME")
         password = os.getenv("D2L_PASSWORD")
-        
+
         if not username or not password:
             print("Error: D2L_USERNAME or D2L_PASSWORD not set in .env")
             return False
 
-        print("Entering credentials...")
-        driver.find_element(By.ID, "username").send_keys(username)
-        driver.find_element(By.ID, "password").send_keys(password)
-        
-        submit_btn = driver.find_element(By.NAME, "_eventId_proceed")
-        submit_btn.click()
-        print("Submitted credentials.")
-        
-        # 3. 2FA / Session Wait
-        print("Waiting for login to complete (Check for 2FA on your device if needed)...")
-        
-        # Wait for redirect back to brightspace
-        WebDriverWait(driver, 120).until( # Increased wait time for 2FA
-            EC.url_contains("purdue.brightspace.com/d2l/home")
+        print("Entering email...")
+        email_field = driver.find_element(By.ID, "i0116")
+        email_field.clear()
+        email_field.send_keys(username)
+
+        # Hold a reference to the Next button so we can detect when the page transitions
+        next_btn = driver.find_element(By.ID, "idSIButton9")
+        next_btn.click()
+        print("Clicked Next.")
+
+        # Wait for the identity banner — it appears once the password view has fully rendered
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.ID, "displayName"))
         )
+
+        # 3. Password step — ignore stale refs from ongoing KnockoutJS animations
+        WebDriverWait(driver, 10, ignored_exceptions=[StaleElementReferenceException]).until(
+            EC.element_to_be_clickable((By.ID, "i0118"))
+        )
+
+        print("Entering password...")
+        for _ in range(3):
+            try:
+                driver.find_element(By.ID, "i0118").send_keys(password)
+                break
+            except StaleElementReferenceException:
+                pass
+
+        for _ in range(3):
+            try:
+                driver.find_element(By.ID, "idSIButton9").click()
+                break
+            except StaleElementReferenceException:
+                pass
+        print("Submitted credentials.")
+
+        # 4. Wait for MFA + either KMSI prompt or direct Brightspace redirect
+        print("Waiting for login to complete (approve Duo/MFA on your device if prompted)...")
+
+        def at_brightspace_or_kmsi(d):
+            url = d.current_url
+            if "purdue.brightspace.com/d2l/home" in url:
+                return "done"
+            try:
+                if d.find_element(By.ID, "KmsiDescription"):
+                    return "kmsi"
+            except Exception:
+                pass
+            return False
+
+        outcome = WebDriverWait(driver, 300).until(at_brightspace_or_kmsi)
+
+        if outcome == "kmsi":
+            print("Handling 'Stay signed in?' prompt — clicking No...")
+            try:
+                driver.find_element(By.ID, "idBtn_Back").click()
+            except Exception:
+                driver.find_element(By.ID, "idSIButton9").click()
+            WebDriverWait(driver, 30).until(
+                EC.url_contains("purdue.brightspace.com/d2l/home")
+            )
+
         print("Login successful! Session established.")
         return True
-        
+
     except Exception as e:
         print(f"Login failed: {e}")
-        # Print page source snippet to debug
         try:
             print(f"Page Source Preview: {driver.page_source[:500]}")
         except: pass
@@ -219,9 +255,14 @@ def validate_and_refresh_session(driver):
             else:
                 print("Warning: Could not capture new cookies after login.")
         else:
-            print("Auto-login failed. Please login manually in the window.")
-            # We could pause here?
-            input("Press Enter after you have manually logged in and are on the Brightspace homepage >> ")
+            print("Auto-login failed. Please complete login manually in the browser window.")
+            print("Waiting up to 5 minutes for manual login...")
+            try:
+                WebDriverWait(driver, 300).until(
+                    EC.url_contains("purdue.brightspace.com/d2l/home")
+                )
+            except Exception:
+                print("Timed out waiting for manual login.")
             # Capture anyway
             new_cookies = {}
             for c in driver.get_cookies():
