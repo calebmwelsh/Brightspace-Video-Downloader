@@ -265,14 +265,16 @@ def main():
                                  # Keywords for documents/files (excludes "lecture" — lecture videos have time codes)
                                  doc_keywords = ["pdf", "slide", "powerpoint", "pptx", "presentation", "document", "doc", "docx", "syllabus"]
 
-                                 # Time codes and external tool label are definitive video signals — check first
+                                 # The " - <Type>" suffix D2L puts in the title is a definitive
+                                 # signal — check those before the doc-keyword heuristic, otherwise a
+                                 # "Lecture Slides - Web Page" would be misread as a PDF and never download.
                                  if "external learning tool" in v_title or re.search(r'\(\d+:\d+\)', v_text):
                                      tag = "[VIDEO]"
-                                 elif any(k in v_low for k in doc_keywords) or any(k in v_title for k in doc_keywords):
-                                     tag = "[PDF]"
                                  elif "web page" in v_title:
                                      # HTML content topic (e.g. lecture notes rendered as a Web Page)
                                      tag = "[WEBPAGE]"
+                                 elif any(k in v_low for k in doc_keywords) or any(k in v_title for k in doc_keywords):
+                                     tag = "[PDF]"
 
                                  if v_href and v_href not in unique_vids:
                                      unique_vids.add(v_href)
